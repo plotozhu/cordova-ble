@@ -431,10 +431,7 @@ exports.parseAdvertisementData = function(device)
 			// but it has to be done in order to maintain the API.
 			var manuData = new Uint8Array(byteArray.buffer, pos, length)
 			console.log(JSON.stringify(manuData));
-			advertisementData.kCBAdvDataManufacturerData =
-
-					base64.fromArrayBuffer(manuData);
-
+			 parseManufactureData(manuData);
 		}
 
 		pos += length;
