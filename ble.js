@@ -262,6 +262,8 @@ var base64;
  */
 exports.parseAdvertisementData = function(device)
 {
+	delete device.ibeacon ;
+	delete device.ysBeacon;
 	if (!base64) { base64 = cordova.require('cordova/base64'); }
 
 	// If device object already has advertisementData we
@@ -281,6 +283,36 @@ exports.parseAdvertisementData = function(device)
 	var serviceUUIDs;
 	var serviceData;
 
+	function parseManufactureData(dataBuf){
+		if(dataBuf.length > 2){
+			switch(dataBuf[0] + dataBuf[1]*256 ){
+				case 0x004c:
+					parseIBeacon(new Uint8Array(dataBuf.buffer,2));
+					break;
+				case 0xfe00:
+					parseYeeshock(new Uint8Array(dataBuf.buffer,2))
+			}
+		}
+	}
+
+	function parseYeeshock(dataBuf){
+		device.ysBeacon = {};
+		switch(dataBuf + dataBuf[1]*256){
+			case 0x0001:   //蓝牙锁,下面的数据是本次lockID
+				device.ysBeacon.lockId= arrayToUUID(dataBuf,2);
+				device.ysBeacon.lockState = dataBuf[16];
+					device.ysBeacon.batteryState = dataBuf[17];
+				break;
+		}
+	}
+	function parseIBeacon(dataBuf){
+
+		if(dataBuf[0] == 0x02 && dataBuf[1] == 0x15){
+			device.ibeacon = {};
+			device.ibeacon.uuid=arrayToUUID(dataBuf,2);
+			device.ibeacon.tx_power = dataBuf[16]-256;
+		}
+	}
 	// The scan record is a list of structures.
 	// Each structure has a length byte, a type byte, and (length-1) data bytes.
 	// The format of the data bytes depends on the type.
@@ -397,8 +429,12 @@ exports.parseAdvertisementData = function(device)
 		{
 			// Annoying to have to transform base64 back and forth,
 			// but it has to be done in order to maintain the API.
+			var manuData = new Uint8Array(byteArray.buffer, pos, length)
+			console.log(JSON.stringify(manuData));
 			advertisementData.kCBAdvDataManufacturerData =
-				base64.fromArrayBuffer(new Uint8Array(byteArray.buffer, pos, length));
+
+					base64.fromArrayBuffer(manuData);
+
 		}
 
 		pos += length;
