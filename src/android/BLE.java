@@ -76,6 +76,7 @@ public class BLE
 
 	private boolean mRegisteredReceivers = false;
 
+
 	// Called when the device's Bluetooth powers on.
 	// Used by startScan() and connect() to wait for power-on if Bluetooth was
 	// off when the function was called.
@@ -126,6 +127,7 @@ public class BLE
 
 			mRegisteredReceivers = true;
 		}
+
 	}
 
 	// Handles JavaScript-to-native function calls.

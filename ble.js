@@ -251,326 +251,331 @@ exports.stopScan = function()
 // how the Evothings Bleat implementation does this.
 ;(function()
 {
-var base64;
+	var base64;
 
-/**
- * Parse the advertisement data in the scan record.
- * If device already has AdvertisementData, does nothing.
- * If device instead has scanRecord, creates AdvertisementData.
- * See  {@link AdvertisementData} for reference documentation.
- * @param {DeviceInfo} device - Device object.
- */
-exports.parseAdvertisementData = function(device)
-{
-	delete device.ibeacon ;
-	delete device.ysBeacon;
-	if (!base64) { base64 = cordova.require('cordova/base64'); }
-
-	// If device object already has advertisementData we
-	// do not need to parse the scanRecord.
-	if (device.advertisementData) { return; }
-
-	// Must have scanRecord yo continue.
-	if (!device.scanRecord) { return; }
-
-	// Here we parse BLE/GAP Scan Response Data.
-	// See the Bluetooth Specification, v4.0, Volume 3, Part C, Section 11,
-	// for details.
-
-	var byteArray = base64DecToArr(device.scanRecord);
-	var pos = 0;
-	var advertisementData = {};
-	var serviceUUIDs;
-	var serviceData;
-
-	function parseManufactureData(dataBuf){
-		if(dataBuf.length > 2){
-			switch(dataBuf[0] + dataBuf[1]*256 ){
-				case 0x004c:
-					parseIBeacon(new Uint8Array(dataBuf.buffer,2));
-					break;
-				case 0xfe00:
-					parseYeeshock(new Uint8Array(dataBuf.buffer,2))
-			}
-		}
-	}
-
-	function parseYeeshock(dataBuf){
-		device.ysBeacon = {};
-		switch(dataBuf + dataBuf[1]*256){
-			case 0x0001:   //蓝牙锁,下面的数据是本次lockID
-				device.ysBeacon.lockId= arrayToUUID(dataBuf,2);
-				device.ysBeacon.lockState = dataBuf[16];
-					device.ysBeacon.batteryState = dataBuf[17];
-				break;
-		}
-	}
-	function parseIBeacon(dataBuf){
-
-		if(dataBuf[0] == 0x02 && dataBuf[1] == 0x15){
-			device.ibeacon = {};
-			device.ibeacon.uuid=arrayToUUID(dataBuf,2);
-			device.ibeacon.tx_power = dataBuf[16]-256;
-		}
-	}
-	// The scan record is a list of structures.
-	// Each structure has a length byte, a type byte, and (length-1) data bytes.
-	// The format of the data bytes depends on the type.
-	// Malformed scanRecords will likely cause an exception in this function.
-	while (pos < byteArray.length)
+	/**
+	 * Parse the advertisement data in the scan record.
+	 * If device already has AdvertisementData, does nothing.
+	 * If device instead has scanRecord, creates AdvertisementData.
+	 * See  {@link AdvertisementData} for reference documentation.
+	 * @param {DeviceInfo} device - Device object.
+	 */
+	exports.parseAdvertisementData = function(device)
 	{
-		var length = byteArray[pos++];
-		if (length == 0)
-		{
-			break;
-		}
-		length -= 1;
-		var type = byteArray[pos++];
+		delete device.ibeacon ;
+		delete device.ysBeacon;
+		if (!base64) { base64 = cordova.require('cordova/base64'); }
 
-		// Parse types we know and care about.
-		// Skip other types.
+		// If device object already has advertisementData we
+		// do not need to parse the scanRecord.
+		if (device.advertisementData) { return; }
 
-		var BLUETOOTH_BASE_UUID = '-0000-1000-8000-00805f9b34fb'
+		// Must have scanRecord yo continue.
+		if (!device.scanRecord) { return; }
 
-		// Convert 16-byte Uint8Array to RFC-4122-formatted UUID.
-		function arrayToUUID(array, offset)
-		{
-			var k=0;
-			var string = '';
-			var UUID_format = [4, 2, 2, 2, 6];
-			for (var l=0; l<UUID_format.length; l++)
-			{
-				if (l != 0)
-				{
-					string += '-';
+		// Here we parse BLE/GAP Scan Response Data.
+		// See the Bluetooth Specification, v4.0, Volume 3, Part C, Section 11,
+		// for details.
+
+		var byteArray = base64DecToArr(device.scanRecord);
+		var pos = 0;
+		var advertisementData = {};
+		var serviceUUIDs;
+		var serviceData;
+
+		function parseManufactureData(data,pos,length){
+			var dataBuf=new Uint8Array(data.buffer,pos,2);
+			if(length > 4){
+				switch(dataBuf[0] + dataBuf[1]*256 ){
+					case 0x004c:
+						parseIBeacon(data,pos+2,length-2);
+						break;
+					case 0xfe00:
+						parseYeeshock(data,pos+2,length-2)
 				}
-				for (var j=0; j<UUID_format[l]; j++, k++)
+			}
+		}
+
+		function parseYeeshock(data,pos,length){
+			device.ysBeacon = {};
+			var dataBuf=new Uint8Array(data.buffer,pos,length);
+			var type = dataBuf[0] + dataBuf[1]*256;
+			device.ysBeacon.type = type;
+			switch(type){
+				case 0x0001:   //蓝牙锁,下面的数据是本次lockID
+
+					device.ysBeacon.lockId= arrayToUUID(dataBuf,2);
+					device.ysBeacon.lockState = dataBuf[16];
+					device.ysBeacon.batteryState = (dataBuf[17] &0x01)?true:false;
+					break;
+			}
+		}
+		function parseIBeacon(data,pos,length){
+			var dataBuf=new Uint8Array(data.buffer,pos,length);
+			if(dataBuf[0] == 0x02 && dataBuf[1] == 0x15){
+				device.ibeacon = {};
+				device.ibeacon.uuid=arrayToUUID(dataBuf,2);
+				device.ibeacon.tx_power = dataBuf[16]-256;
+			}
+		}
+		// The scan record is a list of structures.
+		// Each structure has a length byte, a type byte, and (length-1) data bytes.
+		// The format of the data bytes depends on the type.
+		// Malformed scanRecords will likely cause an exception in this function.
+		while (pos < byteArray.length)
+		{
+			var length = byteArray[pos++];
+			if (length == 0)
+			{
+				break;
+			}
+			length -= 1;
+			var type = byteArray[pos++];
+
+			// Parse types we know and care about.
+			// Skip other types.
+
+			var BLUETOOTH_BASE_UUID = '-0000-1000-8000-00805f9b34fb'
+
+			// Convert 16-byte Uint8Array to RFC-4122-formatted UUID.
+			function arrayToUUID(array, offset)
+			{
+				var k=0;
+				var string = '';
+				var UUID_format = [4, 2, 2, 2, 6];
+				for (var l=0; l<UUID_format.length; l++)
 				{
-					string += toHexString(array[offset+k], 1);
+					if (l != 0)
+					{
+						string += '-';
+					}
+					for (var j=0; j<UUID_format[l]; j++, k++)
+					{
+						string += toHexString(array[offset+k], 1);
+					}
+				}
+				return string;
+			}
+
+			if (type == 0x02 || type == 0x03) // 16-bit Service Class UUIDs.
+			{
+				serviceUUIDs = serviceUUIDs ? serviceUUIDs : [];
+				for(var i=0; i<length; i+=2)
+				{
+					serviceUUIDs.push(
+							'0000' +
+							toHexString(
+									littleEndianToUint16(byteArray, pos + i),
+									2) +
+							BLUETOOTH_BASE_UUID);
 				}
 			}
-			return string;
-		}
-
-		if (type == 0x02 || type == 0x03) // 16-bit Service Class UUIDs.
-		{
-			serviceUUIDs = serviceUUIDs ? serviceUUIDs : [];
-			for(var i=0; i<length; i+=2)
+			if (type == 0x04 || type == 0x05) // 32-bit Service Class UUIDs.
 			{
-				serviceUUIDs.push(
-					'0000' +
-					toHexString(
-						littleEndianToUint16(byteArray, pos + i),
-						2) +
-					BLUETOOTH_BASE_UUID);
+				serviceUUIDs = serviceUUIDs ? serviceUUIDs : [];
+				for (var i=0; i<length; i+=4)
+				{
+					serviceUUIDs.push(
+							toHexString(
+									littleEndianToUint32(byteArray, pos + i),
+									4) +
+							BLUETOOTH_BASE_UUID);
+				}
 			}
-		}
-		if (type == 0x04 || type == 0x05) // 32-bit Service Class UUIDs.
-		{
-			serviceUUIDs = serviceUUIDs ? serviceUUIDs : [];
-			for (var i=0; i<length; i+=4)
+			if (type == 0x06 || type == 0x07) // 128-bit Service Class UUIDs.
 			{
-				serviceUUIDs.push(
-					toHexString(
-						littleEndianToUint32(byteArray, pos + i),
-						4) +
-					BLUETOOTH_BASE_UUID);
+				serviceUUIDs = serviceUUIDs ? serviceUUIDs : [];
+				for (var i=0; i<length; i+=16)
+				{
+					serviceUUIDs.push(arrayToUUID(byteArray, pos + i));
+				}
 			}
-		}
-		if (type == 0x06 || type == 0x07) // 128-bit Service Class UUIDs.
-		{
-			serviceUUIDs = serviceUUIDs ? serviceUUIDs : [];
-			for (var i=0; i<length; i+=16)
+			if (type == 0x08 || type == 0x09) // Local Name.
 			{
-				serviceUUIDs.push(arrayToUUID(byteArray, pos + i));
+				advertisementData.kCBAdvDataLocalName = evothings.ble.fromUtf8(
+						new Uint8Array(byteArray.buffer, pos, length));
 			}
-		}
-		if (type == 0x08 || type == 0x09) // Local Name.
-		{
-			advertisementData.kCBAdvDataLocalName = evothings.ble.fromUtf8(
-				new Uint8Array(byteArray.buffer, pos, length));
-		}
-		if (type == 0x0a) // TX Power Level.
-		{
-			advertisementData.kCBAdvDataTxPowerLevel =
-				littleEndianToInt8(byteArray, pos);
-		}
-		if (type == 0x16) // Service Data, 16-bit UUID.
-		{
-			serviceData = serviceData ? serviceData : {};
-			var uuid =
-				'0000' +
-				toHexString(
-					littleEndianToUint16(byteArray, pos),
-					2) +
-				BLUETOOTH_BASE_UUID;
-			var data = new Uint8Array(byteArray.buffer, pos+2, length-2);
-			serviceData[uuid] = base64.fromArrayBuffer(data);
-		}
-		if (type == 0x20) // Service Data, 32-bit UUID.
-		{
-			serviceData = serviceData ? serviceData : {};
-			var uuid =
-				toHexString(
-					littleEndianToUint32(byteArray, pos),
-					4) +
-				BLUETOOTH_BASE_UUID;
-			var data = new Uint8Array(byteArray.buffer, pos+4, length-4);
-			serviceData[uuid] = base64.fromArrayBuffer(data);
-		}
-		if (type == 0x21) // Service Data, 128-bit UUID.
-		{
-			serviceData = serviceData ? serviceData : {};
-			var uuid = arrayToUUID(byteArray, pos);
-			var data = new Uint8Array(byteArray.buffer, pos+16, length-16);
-			serviceData[uuid] = base64.fromArrayBuffer(data);
-		}
-		if (type == 0xff) // Manufacturer-specific Data.
-		{
-			// Annoying to have to transform base64 back and forth,
-			// but it has to be done in order to maintain the API.
-			var manuData = new Uint8Array(byteArray.buffer, pos, length)
-			console.log(JSON.stringify(manuData));
-			 parseManufactureData(manuData);
-		}
+			if (type == 0x0a) // TX Power Level.
+			{
+				advertisementData.kCBAdvDataTxPowerLevel =
+						littleEndianToInt8(byteArray, pos);
+			}
+			if (type == 0x16) // Service Data, 16-bit UUID.
+			{
+				serviceData = serviceData ? serviceData : {};
+				var uuid =
+						'0000' +
+						toHexString(
+								littleEndianToUint16(byteArray, pos),
+								2) +
+						BLUETOOTH_BASE_UUID;
+				var data = new Uint8Array(byteArray.buffer, pos+2, length-2);
+				serviceData[uuid] = base64.fromArrayBuffer(data);
+			}
+			if (type == 0x20) // Service Data, 32-bit UUID.
+			{
+				serviceData = serviceData ? serviceData : {};
+				var uuid =
+						toHexString(
+								littleEndianToUint32(byteArray, pos),
+								4) +
+						BLUETOOTH_BASE_UUID;
+				var data = new Uint8Array(byteArray.buffer, pos+4, length-4);
+				serviceData[uuid] = base64.fromArrayBuffer(data);
+			}
+			if (type == 0x21) // Service Data, 128-bit UUID.
+			{
+				serviceData = serviceData ? serviceData : {};
+				var uuid = arrayToUUID(byteArray, pos);
+				var data = new Uint8Array(byteArray.buffer, pos+16, length-16);
+				serviceData[uuid] = base64.fromArrayBuffer(data);
+			}
+			if (type == 0xff) // Manufacturer-specific Data.
+			{
+				// Annoying to have to transform base64 back and forth,
+				// but it has to be done in order to maintain the API.
+				//var manuData = new Uint8Array(byteArray.buffer, pos, length)
+				//console.log(JSON.stringify(manuData));
+				parseManufactureData(byteArray,pos,length);
+			}
 
-		pos += length;
-	}
-	advertisementData.kCBAdvDataServiceUUIDs = serviceUUIDs;
-	advertisementData.kCBAdvDataServiceData = serviceData;
-	device.advertisementData = advertisementData;
+			pos += length;
+		}
+		advertisementData.kCBAdvDataServiceUUIDs = serviceUUIDs;
+		advertisementData.kCBAdvDataServiceData = serviceData;
+		device.advertisementData = advertisementData;
 
-	/*
-	// Log raw data for debugging purposes.
+		/*
+		 // Log raw data for debugging purposes.
 
-	console.log("scanRecord: "+evothings.util.typedArrayToHexString(byteArray));
+		 console.log("scanRecord: "+evothings.util.typedArrayToHexString(byteArray));
 
-	console.log(JSON.stringify(advertisementData));
-	*/
-};
+		 console.log(JSON.stringify(advertisementData));
+		 */
+	};
 
-/**
- * Decodes a Base64 string. Returns a Uint8Array.
- * nBlocksSize is optional.
- * @param {String} sBase64
- * @param {int} nBlocksSize
- * @return {Uint8Array}
- * @public
- */
-function base64DecToArr(sBase64, nBlocksSize) {
-	var sB64Enc = sBase64.replace(/[^A-Za-z0-9\+\/]/g, "");
-	var nInLen = sB64Enc.length;
-	var nOutLen = nBlocksSize ?
+	/**
+	 * Decodes a Base64 string. Returns a Uint8Array.
+	 * nBlocksSize is optional.
+	 * @param {String} sBase64
+	 * @param {int} nBlocksSize
+	 * @return {Uint8Array}
+	 * @public
+	 */
+	function base64DecToArr(sBase64, nBlocksSize) {
+		var sB64Enc = sBase64.replace(/[^A-Za-z0-9\+\/]/g, "");
+		var nInLen = sB64Enc.length;
+		var nOutLen = nBlocksSize ?
 		Math.ceil((nInLen * 3 + 1 >> 2) / nBlocksSize) * nBlocksSize
-		: nInLen * 3 + 1 >> 2;
-	var taBytes = new Uint8Array(nOutLen);
+				: nInLen * 3 + 1 >> 2;
+		var taBytes = new Uint8Array(nOutLen);
 
-	for (var nMod3, nMod4, nUint24 = 0, nOutIdx = 0, nInIdx = 0; nInIdx < nInLen; nInIdx++) {
-		nMod4 = nInIdx & 3;
-		nUint24 |= b64ToUint6(sB64Enc.charCodeAt(nInIdx)) << 18 - 6 * nMod4;
-		if (nMod4 === 3 || nInLen - nInIdx === 1) {
-			for (nMod3 = 0; nMod3 < 3 && nOutIdx < nOutLen; nMod3++, nOutIdx++) {
-				taBytes[nOutIdx] = nUint24 >>> (16 >>> nMod3 & 24) & 255;
+		for (var nMod3, nMod4, nUint24 = 0, nOutIdx = 0, nInIdx = 0; nInIdx < nInLen; nInIdx++) {
+			nMod4 = nInIdx & 3;
+			nUint24 |= b64ToUint6(sB64Enc.charCodeAt(nInIdx)) << 18 - 6 * nMod4;
+			if (nMod4 === 3 || nInLen - nInIdx === 1) {
+				for (nMod3 = 0; nMod3 < 3 && nOutIdx < nOutLen; nMod3++, nOutIdx++) {
+					taBytes[nOutIdx] = nUint24 >>> (16 >>> nMod3 & 24) & 255;
+				}
+				nUint24 = 0;
 			}
-			nUint24 = 0;
 		}
+
+		return taBytes;
 	}
 
-	return taBytes;
-}
-
-/**
- * Converts a single Base64 character to a 6-bit integer.
- * @private
- */
-function b64ToUint6(nChr) {
-	return nChr > 64 && nChr < 91 ?
-			nChr - 65
-		: nChr > 96 && nChr < 123 ?
-			nChr - 71
-		: nChr > 47 && nChr < 58 ?
-			nChr + 4
-		: nChr === 43 ?
-			62
-		: nChr === 47 ?
-			63
-		:
-			0;
-}
-
-/**
- * Returns the integer i in hexadecimal string form,
- * with leading zeroes, such that
- * the resulting string is at least byteCount*2 characters long.
- * @param {int} i
- * @param {int} byteCount
- * @public
- */
-function toHexString(i, byteCount) {
-	var string = (new Number(i)).toString(16);
-	while(string.length < byteCount*2) {
-		string = '0'+string;
+	/**
+	 * Converts a single Base64 character to a 6-bit integer.
+	 * @private
+	 */
+	function b64ToUint6(nChr) {
+		return nChr > 64 && nChr < 91 ?
+		nChr - 65
+				: nChr > 96 && nChr < 123 ?
+		nChr - 71
+				: nChr > 47 && nChr < 58 ?
+		nChr + 4
+				: nChr === 43 ?
+				62
+				: nChr === 47 ?
+				63
+				:
+				0;
 	}
-	return string;
-}
 
-/**
- * Interpret byte buffer as unsigned little endian 16 bit integer.
- * Returns converted number.
- * @param {ArrayBuffer} data - Input buffer.
- * @param {number} offset - Start of data.
- * @return Converted number.
- * @public
- */
-function littleEndianToUint16(data, offset)
-{
-	return (littleEndianToUint8(data, offset + 1) << 8) +
-		littleEndianToUint8(data, offset)
-}
+	/**
+	 * Returns the integer i in hexadecimal string form,
+	 * with leading zeroes, such that
+	 * the resulting string is at least byteCount*2 characters long.
+	 * @param {int} i
+	 * @param {int} byteCount
+	 * @public
+	 */
+	function toHexString(i, byteCount) {
+		var string = (new Number(i)).toString(16);
+		while(string.length < byteCount*2) {
+			string = '0'+string;
+		}
+		return string;
+	}
 
-/**
- * Interpret byte buffer as unsigned little endian 32 bit integer.
- * Returns converted number.
- * @param {ArrayBuffer} data - Input buffer.
- * @param {number} offset - Start of data.
- * @return Converted number.
- * @public
- */
-function littleEndianToUint32(data, offset)
-{
-	return (littleEndianToUint8(data, offset + 3) << 24) +
-		(littleEndianToUint8(data, offset + 2) << 16) +
-		(littleEndianToUint8(data, offset + 1) << 8) +
-		littleEndianToUint8(data, offset)
-}
+	/**
+	 * Interpret byte buffer as unsigned little endian 16 bit integer.
+	 * Returns converted number.
+	 * @param {ArrayBuffer} data - Input buffer.
+	 * @param {number} offset - Start of data.
+	 * @return Converted number.
+	 * @public
+	 */
+	function littleEndianToUint16(data, offset)
+	{
+		return (littleEndianToUint8(data, offset + 1) << 8) +
+				littleEndianToUint8(data, offset)
+	}
 
-/**
- * Interpret byte buffer as little endian 8 bit integer.
- * Returns converted number.
- * @param {ArrayBuffer} data - Input buffer.
- * @param {number} offset - Start of data.
- * @return Converted number.
- * @public
- */
-function littleEndianToInt8(data, offset)
-{
-	var x = littleEndianToUint8(data, offset)
-	if (x & 0x80) x = x - 256
-	return x
-}
+	/**
+	 * Interpret byte buffer as unsigned little endian 32 bit integer.
+	 * Returns converted number.
+	 * @param {ArrayBuffer} data - Input buffer.
+	 * @param {number} offset - Start of data.
+	 * @return Converted number.
+	 * @public
+	 */
+	function littleEndianToUint32(data, offset)
+	{
+		return (littleEndianToUint8(data, offset + 3) << 24) +
+				(littleEndianToUint8(data, offset + 2) << 16) +
+				(littleEndianToUint8(data, offset + 1) << 8) +
+				littleEndianToUint8(data, offset)
+	}
 
-/**
- * Interpret byte buffer as unsigned little endian 8 bit integer.
- * Returns converted number.
- * @param {ArrayBuffer} data - Input buffer.
- * @param {number} offset - Start of data.
- * @return Converted number.
- * @public
- */
-function littleEndianToUint8(data, offset)
-{
-	return data[offset]
-}
+	/**
+	 * Interpret byte buffer as little endian 8 bit integer.
+	 * Returns converted number.
+	 * @param {ArrayBuffer} data - Input buffer.
+	 * @param {number} offset - Start of data.
+	 * @return Converted number.
+	 * @public
+	 */
+	function littleEndianToInt8(data, offset)
+	{
+		var x = littleEndianToUint8(data, offset)
+		if (x & 0x80) x = x - 256
+		return x
+	}
+
+	/**
+	 * Interpret byte buffer as unsigned little endian 8 bit integer.
+	 * Returns converted number.
+	 * @param {ArrayBuffer} data - Input buffer.
+	 * @param {number} offset - Start of data.
+	 * @return Converted number.
+	 * @public
+	 */
+	function littleEndianToUint8(data, offset)
+	{
+		return data[offset]
+	}
 
 })(); // End of closure for parseAdvertisementData.
 
@@ -668,26 +673,26 @@ exports.getBondState = function(device, success, fail, options)
 		// On iOS (and other platforms in the future) we get the list of
 		// bonded devices and search it.
 		exports.getBondedDevices(
-			// Success function.
-			function(devices)
-			{
-				for (var i in devices)
+				// Success function.
+				function(devices)
 				{
-					var d = devices[i];
-					if (d.address == device.address)
+					for (var i in devices)
 					{
-						success("bonded");
-						return; // bonded device found
+						var d = devices[i];
+						if (d.address == device.address)
+						{
+							success("bonded");
+							return; // bonded device found
+						}
 					}
-				}
-				success("unbonded")
-			},
-			// Error function.
-			function(error)
-			{
-				success("unknown");
-			},
-			{ serviceUUIDs: [serviceUUID] }
+					success("unbonded")
+				},
+				// Error function.
+				function(error)
+				{
+					success("unknown");
+				},
+				{ serviceUUIDs: [serviceUUID] }
 		);
 	}
 }
@@ -921,14 +926,14 @@ exports.connectToDevice = function(device, connected, disconnected, fail, option
 				// device.services is set by readServiceData to
 				// the resulting services array.
 				evothings.ble.readServiceData(
-					device,
-					function readServicesSuccess(services)
-					{
-						// Notify connected callback.
-						connected(device);
-					},
-					fail,
-					{ serviceUUIDs: serviceUUIDs });
+						device,
+						function readServicesSuccess(services)
+						{
+							// Notify connected callback.
+							connected(device);
+						},
+						fail,
+						{ serviceUUIDs: serviceUUIDs });
 			}
 			else
 			{
@@ -942,9 +947,9 @@ exports.connectToDevice = function(device, connected, disconnected, fail, option
 			disconnected(device);
 		}
 
-    }
+	}
 
-    // Connect to device.
+	// Connect to device.
 	exec(onConnectEvent, fail, 'BLE', 'connect', [device.address]);
 };
 
@@ -1109,8 +1114,8 @@ exports.serviceType = {
 exports.characteristics = function(deviceOrHandle, serviceOrHandle, success, fail)
 {
 	exec(success, fail, 'BLE', 'characteristics',
-		[objectHandle(deviceOrHandle),
-		 objectHandle(serviceOrHandle)]);
+			[objectHandle(deviceOrHandle),
+				objectHandle(serviceOrHandle)]);
 };
 
 /**
@@ -1265,8 +1270,8 @@ exports.writeType = {
 exports.descriptors = function(deviceOrHandle, characteristicOrHandle, success, fail)
 {
 	exec(success, fail, 'BLE', 'descriptors',
-		[objectHandle(deviceOrHandle),
-		 objectHandle(characteristicOrHandle)]);
+			[objectHandle(deviceOrHandle),
+				objectHandle(characteristicOrHandle)]);
 };
 
 /**
@@ -1312,8 +1317,8 @@ exports.descriptors = function(deviceOrHandle, characteristicOrHandle, success, 
 exports.readCharacteristic = function(deviceOrHandle, characteristicOrHandle, success, fail)
 {
 	exec(success, fail, 'BLE', 'readCharacteristic',
-		[objectHandle(deviceOrHandle),
-		 objectHandle(characteristicOrHandle)]);
+			[objectHandle(deviceOrHandle),
+				objectHandle(characteristicOrHandle)]);
 };
 
 /**
@@ -1338,8 +1343,8 @@ exports.readCharacteristic = function(deviceOrHandle, characteristicOrHandle, su
 exports.readDescriptor = function(deviceOrHandle, descriptorOrHandle, success, fail)
 {
 	exec(success, fail, 'BLE', 'readDescriptor',
-		[objectHandle(deviceOrHandle),
-		 objectHandle(descriptorOrHandle)]);
+			[objectHandle(deviceOrHandle),
+				objectHandle(descriptorOrHandle)]);
 };
 
 /**
@@ -1367,9 +1372,9 @@ exports.readDescriptor = function(deviceOrHandle, descriptorOrHandle, success, f
 exports.writeCharacteristic = function(deviceOrHandle, characteristicOrHandle, data, success, fail)
 {
 	exec(success, fail, 'BLE', 'writeCharacteristic',
-		[objectHandle(deviceOrHandle),
-		 objectHandle(characteristicOrHandle),
-		 data.buffer]);
+			[objectHandle(deviceOrHandle),
+				objectHandle(characteristicOrHandle),
+				data.buffer]);
 };
 
 /**
@@ -1392,9 +1397,9 @@ exports.writeCharacteristic = function(deviceOrHandle, characteristicOrHandle, d
 exports.writeCharacteristicWithoutResponse = function(deviceOrHandle, characteristicOrHandle, data, success, fail)
 {
 	exec(success, fail, 'BLE', 'writeCharacteristicWithoutResponse',
-		[objectHandle(deviceOrHandle),
-		 objectHandle(characteristicOrHandle),
-		 data.buffer]);
+			[objectHandle(deviceOrHandle),
+				objectHandle(characteristicOrHandle),
+				data.buffer]);
 };
 
 /**
@@ -1409,9 +1414,9 @@ exports.writeCharacteristicWithoutResponse = function(deviceOrHandle, characteri
 exports.writeDescriptor = function(deviceOrHandle, descriptorOrHandle, data, success, fail)
 {
 	exec(success, fail, 'BLE', 'writeDescriptor',
-		[objectHandle(deviceOrHandle),
-		 objectHandle(descriptorOrHandle),
-		 data.buffer]);
+			[objectHandle(deviceOrHandle),
+				objectHandle(descriptorOrHandle),
+				data.buffer]);
 };
 
 /**
@@ -1461,9 +1466,9 @@ exports.enableNotification = function(deviceOrHandle, characteristicOrHandle, su
 		var flags = 1; // Don't write config descriptor.
 	}
 	exec(success, fail, 'BLE', 'enableNotification',
-		[objectHandle(deviceOrHandle),
-		 objectHandle(characteristicOrHandle),
-		 flags]);
+			[objectHandle(deviceOrHandle),
+				objectHandle(characteristicOrHandle),
+				flags]);
 };
 
 /**
@@ -1505,9 +1510,9 @@ exports.disableNotification = function(deviceOrHandle, characteristicOrHandle, s
 		var flags = 1; // Don't write config descriptor.
 	}
 	exec(success, fail, 'BLE', 'disableNotification',
-		[objectHandle(deviceOrHandle),
-		 objectHandle(characteristicOrHandle),
-		 flags]);
+			[objectHandle(deviceOrHandle),
+				objectHandle(characteristicOrHandle),
+				flags]);
 };
 
 /**
@@ -1598,9 +1603,9 @@ exports.getCanonicalUUID = function(uuid)
 	if (uuid.length === 32)
 	{
 		uuid = uuid
-			.match(/^([0-9a-f]{8})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{12})$/)
-			.splice(1)
-			.join('-');
+				.match(/^([0-9a-f]{8})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{12})$/)
+				.splice(1)
+				.join('-');
 	}
 
 	return uuid;
@@ -1700,13 +1705,13 @@ exports.readServiceData = function(deviceOrHandle, success, fail, options)
 
 					// Read characteristics for service.
 					exports.characteristics(
-						deviceOrHandle,
-						service,
-						characteristicsCallbackFun(service),
-						function(errorCode)
-						{
-							fail(errorCode);
-						});
+							deviceOrHandle,
+							service,
+							characteristicsCallbackFun(service),
+							function(errorCode)
+							{
+								fail(errorCode);
+							});
 				}
 				else
 				{
@@ -1732,14 +1737,14 @@ exports.readServiceData = function(deviceOrHandle, success, fail, options)
 
 				// Read descriptors for characteristic.
 				exports.descriptors(
-					deviceOrHandle,
-					characteristic,
-					descriptorsCallbackFun(characteristic),
-					function(errorCode)
-					{
-						console.log('descriptors error: ' + errorCode);
-						fail(errorCode);
-					});
+						deviceOrHandle,
+						characteristic,
+						descriptorsCallbackFun(characteristic),
+						function(errorCode)
+						{
+							console.log('descriptors error: ' + errorCode);
+							fail(errorCode);
+						});
 			}
 		};
 	}
@@ -1772,13 +1777,13 @@ exports.readServiceData = function(deviceOrHandle, success, fail, options)
 
 	// Read services for device.
 	exports.services(
-		deviceOrHandle,
-		servicesCallbackFun(),
-		function(errorCode)
-		{
-			console.log('services error: ' + errorCode);
-			fail(errorCode);
-		});
+			deviceOrHandle,
+			servicesCallbackFun(),
+			function(errorCode)
+			{
+				console.log('services error: ' + errorCode);
+				fail(errorCode);
+			});
 };
 
 /**
@@ -1921,11 +1926,11 @@ function gattServerCallbackHandler(winFunc, settings) {
 
 	function handleReadWrite(object) {
 		/* // primitive version
-		if(!object.readRequestCallback) {
-			throw "readRequestCallback missing!");
-		}
-		readCallbacks[nextHandle] = object.readRequestCallback;
-		*/
+		 if(!object.readRequestCallback) {
+		 throw "readRequestCallback missing!");
+		 }
+		 readCallbacks[nextHandle] = object.readRequestCallback;
+		 */
 		handleCallback(object, "onReadRequest", readCallbacks);
 		handleCallback(object, "onWriteRequest", writeCallbacks);
 	}
@@ -1947,9 +1952,9 @@ function gattServerCallbackHandler(winFunc, settings) {
 	return function(args) {
 		// primitive version
 		/*if(args.name == "win") {
-			winFunc();
-			return;
-		}*/
+		 winFunc();
+		 return;
+		 }*/
 		var funcs = {
 			win: winFunc,
 			connection: function() {
@@ -1967,178 +1972,178 @@ function gattServerCallbackHandler(winFunc, settings) {
 }
 
 /** Starts the GATT server.
-* There can be only one server. If this function is called while the server is still running, the call will fail.
-* Once this function succeeds, the server may be stopped by calling stopGattServer.
-*
-* @param {GattSettings} settings
-* @param {emptyCallback} win
-* @param {failCallback} fail
-*/
+ * There can be only one server. If this function is called while the server is still running, the call will fail.
+ * Once this function succeeds, the server may be stopped by calling stopGattServer.
+ *
+ * @param {GattSettings} settings
+ * @param {emptyCallback} win
+ * @param {failCallback} fail
+ */
 exports.peripheral.startGattServer = function(settings, win, fail) {
 	exec(gattServerCallbackHandler(win, settings), fail, 'BLE', 'startGattServer', [settings]);
 };
 
 // GattSettings
 /** Describes a GATT server.
-* @typedef {Object} GattSettings
-* @property {Array} services - An array of GattService objects.
-* @property {connectionStateChangeCallback} onConnectionStateChange
-*/
+ * @typedef {Object} GattSettings
+ * @property {Array} services - An array of GattService objects.
+ * @property {connectionStateChangeCallback} onConnectionStateChange
+ */
 
 /** Describes a GATT service.
-* @typedef {Object} GattService
-* @property {string} uuid - Formatted according to RFC 4122, all lowercase.
-* @property {serviceType} type
-* @property {Array} characteristics - An array of GattCharacteristic objects.
-*/
+ * @typedef {Object} GattService
+ * @property {string} uuid - Formatted according to RFC 4122, all lowercase.
+ * @property {serviceType} type
+ * @property {Array} characteristics - An array of GattCharacteristic objects.
+ */
 
 /** Describes a GATT characteristic.
-* @typedef {Object} GattCharacteristic
-* @property {int} handle - Optional. Used in notify(). If set, must be unique among all other GattCharacteristic handles.
-* @property {string} uuid - Formatted according to RFC 4122, all lowercase.
-* @property {module:cordova-plugin-ble.permission} permissions - Bitmask of zero or more permission flags.
-* @property {property} properties - Bitmask of zero or more property flags.
-* @property {writeType} writeType
-* @property {readRequestCallback} onReadRequest
-* @property {writeRequestCallback} onWriteRequest
-* @property {Array} descriptors - Optional. An array of GattDescriptor objects.
-*/
+ * @typedef {Object} GattCharacteristic
+ * @property {int} handle - Optional. Used in notify(). If set, must be unique among all other GattCharacteristic handles.
+ * @property {string} uuid - Formatted according to RFC 4122, all lowercase.
+ * @property {module:cordova-plugin-ble.permission} permissions - Bitmask of zero or more permission flags.
+ * @property {property} properties - Bitmask of zero or more property flags.
+ * @property {writeType} writeType
+ * @property {readRequestCallback} onReadRequest
+ * @property {writeRequestCallback} onWriteRequest
+ * @property {Array} descriptors - Optional. An array of GattDescriptor objects.
+ */
 
 /** Describes a GATT descriptor.
-* @typedef {Object} GattDescriptor
-* @property {string} uuid - Formatted according to RFC 4122, all lowercase.
-* @property {module:cordova-plugin-ble.permission} permissions - Bitmask of zero or more permission flags.
-* @property {readRequestCallback} onReadRequest
-* @property {writeRequestCallback} onWriteRequest
-*/
+ * @typedef {Object} GattDescriptor
+ * @property {string} uuid - Formatted according to RFC 4122, all lowercase.
+ * @property {module:cordova-plugin-ble.permission} permissions - Bitmask of zero or more permission flags.
+ * @property {readRequestCallback} onReadRequest
+ * @property {writeRequestCallback} onWriteRequest
+ */
 
 
 // GattServer callbacks
 /** This function is a part of GattSettings and is called when a remote device connects to, or disconnects from, your server.
-* @callback connectionStateChangeCallback
-* @param {int} deviceHandle - Will be used in other callbacks.
-* @param {boolean} connected - If true, the device just connected, and the handle is now valid for use in close() and other functions.
-* If false, it just disconnected, and the handle is now invalid for use in close() and other functions.
-*/
+ * @callback connectionStateChangeCallback
+ * @param {int} deviceHandle - Will be used in other callbacks.
+ * @param {boolean} connected - If true, the device just connected, and the handle is now valid for use in close() and other functions.
+ * If false, it just disconnected, and the handle is now invalid for use in close() and other functions.
+ */
 
 /** Called when a remote device asks to read a characteristic or descriptor.
-* You must call sendResponse() to complete the request.
-* @callback readRequestCallback
-* @param {int} deviceHandle
-* @param {int} requestId
-*/
+ * You must call sendResponse() to complete the request.
+ * @callback readRequestCallback
+ * @param {int} deviceHandle
+ * @param {int} requestId
+ */
 
 /** Called when a remote device asks to write a characteristic or descriptor.
-* You must call sendResponse() to complete the request.
-* @callback writeRequestCallback
-* @param {int} deviceHandle
-* @param {int} requestId
-* @param {ArrayBuffer} data
-*/
+ * You must call sendResponse() to complete the request.
+ * @callback writeRequestCallback
+ * @param {int} deviceHandle
+ * @param {int} requestId
+ * @param {ArrayBuffer} data
+ */
 
 
 /** Stops the GATT server.
-* This stops any active advertisements and forcibly disconnects any clients.
-* There can be only one server. If startGattServer() returned success, you may call this function once.
-* Calling it more will result in failure.
-*
-* @param {emptyCallback} win
-* @param {failCallback} fail
-*/
+ * This stops any active advertisements and forcibly disconnects any clients.
+ * There can be only one server. If startGattServer() returned success, you may call this function once.
+ * Calling it more will result in failure.
+ *
+ * @param {emptyCallback} win
+ * @param {failCallback} fail
+ */
 exports.peripheral.stopGattServer = function(win, fail) {
 	exec(win, fail, 'BLE', 'stopGattServer', []);
 };
 
 /** Sends a response to a read or write request.
-* @param {int} deviceHandle - From a requestCallback.
-* @param {int} requestId - From the same requestCallback as deviceHandle.
-* @param {ArrayBufferView} data - Required for responses to read requests. May be set to null for write requests.
-* @param {emptyCallback} win
-* @param {failCallback} fail
-*/
+ * @param {int} deviceHandle - From a requestCallback.
+ * @param {int} requestId - From the same requestCallback as deviceHandle.
+ * @param {ArrayBufferView} data - Required for responses to read requests. May be set to null for write requests.
+ * @param {emptyCallback} win
+ * @param {failCallback} fail
+ */
 exports.peripheral.sendResponse = function(deviceHandle, requestId, data, win, fail) {
 	exec(win, fail, 'BLE', 'sendResponse', [deviceHandle, requestId, data.buffer]);
 }
 
 /** Sends a notification to a remote device that a characteristic's value has been updated.
-* @param {int} deviceHandle - From a connectionStateChangeCallback.
-* @param {int} characteristicHandle - GattCharacteristic.handle
-* @param {ArrayBufferView} data - The characteristic's new value.
-* @param {emptyCallback} win
-* @param {failCallback} fail
-*/
+ * @param {int} deviceHandle - From a connectionStateChangeCallback.
+ * @param {int} characteristicHandle - GattCharacteristic.handle
+ * @param {ArrayBufferView} data - The characteristic's new value.
+ * @param {emptyCallback} win
+ * @param {failCallback} fail
+ */
 exports.peripheral.notify = function(deviceHandle, characteristic, data, win, fail) {
 	exec(win, fail, 'BLE', 'notify', [deviceHandle, characteristic, data.buffer]);
 };
 
 /*	// never mind, just use close().
-// Closes a client handle, freeing the resources.
-exports.closeClient = function(clientHandle, win, fail) {
-};
-*/
+ // Closes a client handle, freeing the resources.
+ exports.closeClient = function(clientHandle, win, fail) {
+ };
+ */
 
 
 /** Starts BLE advertise.
-* Fails if advertise is running. In that case, call stopAdvertise first.
-*
-* @param {AdvertiseSettings} settings
-* @param {emptyCallback} win
-* @param {failCallback} fail
-*/
+ * Fails if advertise is running. In that case, call stopAdvertise first.
+ *
+ * @param {AdvertiseSettings} settings
+ * @param {emptyCallback} win
+ * @param {failCallback} fail
+ */
 exports.peripheral.startAdvertise = function(settings, win, fail) {
 	exec(win, fail, 'BLE', 'startAdvertise', [settings]);
 }
 
 /** Stops BLE advertise.
-*
-* @param {emptyCallback} win
-* @param {failCallback} fail
-*/
+ *
+ * @param {emptyCallback} win
+ * @param {failCallback} fail
+ */
 exports.peripheral.stopAdvertise = function(win, fail) {
 	exec(win, fail, 'BLE', 'stopAdvertise', []);
 }
 
 // AdvertiseSettings
 /** Describes a BLE advertisement.
-*
-* All the properties are optional, except broadcastData.
-*
-* @typedef {Object} AdvertiseSettings
-* @property {string} advertiseMode - ADVERTISE_MODE_LOW_POWER, ADVERTISE_MODE_BALANCED, or ADVERTISE_MODE_LOW_LATENCY.
-* The default is ADVERTISE_MODE_LOW_POWER.
-* @property {boolean} connectable - Advertise as connectable or not. Has no bearing on whether the device is actually connectable.
-* The default is true if there is a GattServer running, false if there isn't.
-* @property {int} timeoutMillis - Advertising time limit. May not exceed 180000 milliseconds. A value of 0 will disable the time limit.
-* The default is 0.
-* @property {string} txPowerLevel - ADVERTISE_TX_POWER_ULTRA_LOW, ADVERTISE_TX_POWER_LOW, ADVERTISE_TX_POWER_MEDIUM or ADVERTISE_TX_POWER_HIGH.
-* The default is ADVERTISE_TX_POWER_MEDIUM.
-* @property {AdvertiseData} broadcastData - The data which will be broadcast. Passive scanners will see this data.
-* @property {AdvertiseData} scanResponseData - The data with which the device will respond to active scans.
-* Should be an extension to the broadcastData; should not contain the same data.
-*/
+ *
+ * All the properties are optional, except broadcastData.
+ *
+ * @typedef {Object} AdvertiseSettings
+ * @property {string} advertiseMode - ADVERTISE_MODE_LOW_POWER, ADVERTISE_MODE_BALANCED, or ADVERTISE_MODE_LOW_LATENCY.
+ * The default is ADVERTISE_MODE_LOW_POWER.
+ * @property {boolean} connectable - Advertise as connectable or not. Has no bearing on whether the device is actually connectable.
+ * The default is true if there is a GattServer running, false if there isn't.
+ * @property {int} timeoutMillis - Advertising time limit. May not exceed 180000 milliseconds. A value of 0 will disable the time limit.
+ * The default is 0.
+ * @property {string} txPowerLevel - ADVERTISE_TX_POWER_ULTRA_LOW, ADVERTISE_TX_POWER_LOW, ADVERTISE_TX_POWER_MEDIUM or ADVERTISE_TX_POWER_HIGH.
+ * The default is ADVERTISE_TX_POWER_MEDIUM.
+ * @property {AdvertiseData} broadcastData - The data which will be broadcast. Passive scanners will see this data.
+ * @property {AdvertiseData} scanResponseData - The data with which the device will respond to active scans.
+ * Should be an extension to the broadcastData; should not contain the same data.
+ */
 
 /** Describes BLE advertisement data.
-*
-* Data size is limited to 31 bytes. Each property set consumes some bytes.
-* If too much data is added, startAdvertise will fail with "ADVERTISE_FAILED_DATA_TOO_LARGE" or something similar.
-*
-* All properties are optional.
-* UUIDs must be formatted according to RFC 4122, all lowercase.
-* Normally, UUIDs take up 16 bytes. However, UUIDs that use the Bluetooth Base format can be compressed to 4 or 2 bytes.
-* The Bluetooth Base UUID is "00000000-0000-1000-8000-00805f9b34fb".
-* For 2 bytes, use this format, where "x" is any hexadecimal digit: "0000xxxx-0000-1000-8000-00805f9b34fb".
-* For 4 bytes, use this format: "xxxxxxxx-0000-1000-8000-00805f9b34fb".
-*
-* @typedef {Object} AdvertiseData
-* @property {boolean} includeDeviceName - If true, the device's Bluetooth name is added to the advertisement.
-* The name is set by the user in the device's Settings. The name cannot be changed by the app.
-* The default is false.
-* @property {boolean} includeTxPowerLevel - If true, the txPowerLevel found in AdvertiseSettings is added to the advertisement.
-* The default is false.
-* @property {Array} serviceUUIDs - Array of strings. Each string is the UUID of a service that should be available in the device's GattServer.
-* @property {Object} serviceData - Map of string to string. Each key is a service UUID.
-* The value is base64-encoded data associated with the service.
-* @property {Object} manufacturerData - Map of int to string. Each key is a manufacturer ID.
-* Manufacturer IDs are assigned by the {@link http://www.bluetooth.com/|Bluetooth Special Interest Group}.
-* The value is base64-encoded data associated with the manufacturer.
-*/
+ *
+ * Data size is limited to 31 bytes. Each property set consumes some bytes.
+ * If too much data is added, startAdvertise will fail with "ADVERTISE_FAILED_DATA_TOO_LARGE" or something similar.
+ *
+ * All properties are optional.
+ * UUIDs must be formatted according to RFC 4122, all lowercase.
+ * Normally, UUIDs take up 16 bytes. However, UUIDs that use the Bluetooth Base format can be compressed to 4 or 2 bytes.
+ * The Bluetooth Base UUID is "00000000-0000-1000-8000-00805f9b34fb".
+ * For 2 bytes, use this format, where "x" is any hexadecimal digit: "0000xxxx-0000-1000-8000-00805f9b34fb".
+ * For 4 bytes, use this format: "xxxxxxxx-0000-1000-8000-00805f9b34fb".
+ *
+ * @typedef {Object} AdvertiseData
+ * @property {boolean} includeDeviceName - If true, the device's Bluetooth name is added to the advertisement.
+ * The name is set by the user in the device's Settings. The name cannot be changed by the app.
+ * The default is false.
+ * @property {boolean} includeTxPowerLevel - If true, the txPowerLevel found in AdvertiseSettings is added to the advertisement.
+ * The default is false.
+ * @property {Array} serviceUUIDs - Array of strings. Each string is the UUID of a service that should be available in the device's GattServer.
+ * @property {Object} serviceData - Map of string to string. Each key is a service UUID.
+ * The value is base64-encoded data associated with the service.
+ * @property {Object} manufacturerData - Map of int to string. Each key is a manufacturer ID.
+ * Manufacturer IDs are assigned by the {@link http://www.bluetooth.com/|Bluetooth Special Interest Group}.
+ * The value is base64-encoded data associated with the manufacturer.
+ */

@@ -1,6 +1,6 @@
 {
   "name": "cordova-plugin-ysble",
-  "version": "2.0.2",
+  "version": "2.0.4",
   "description": "Bluetooth Low Energy Cordova plugin",
   "cordova": {
     "id": "cordova-plugin-ysble",
